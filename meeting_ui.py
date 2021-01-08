@@ -1,12 +1,21 @@
 from PyQt5 import uic
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QTimer, QMutex, QThread, QModelIndex
+from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QTimer, QMutex, QThread, QModelIndex, QDate, QDateTime
 from PyQt5 import QtWidgets, QtSvg, QtGui
 from PyQt5.QtGui import QPixmap, QImage, QPainter, QPalette
+
+#x : QDateTime = QDateTime.currentDateTime()
+#print(x.date())
+#print(x)
+#y = x.toPyDateTime()
+#print(QDateTime(y))
+#print(y.date())
+#quit()
 
 import sys
 import contextlib
 import logging
 import string
+import datetime
 import json
 import pathlib
 import xdg
@@ -28,10 +37,17 @@ class Meeting:
 
         return password
 
-    def __init__(self, meeting_id: str, password: str, name: str):
+    def __iter__(self):
+        return iter((self.meeting_id, self.password, self.name, self.datetime.isoformat()))
+
+    def __init__(self, meeting_id: str, password: str, name: str, _datetime: datetime.datetime):
+        if type(_datetime) is str:
+            _datetime = datetime.datetime.fromisoformat(_datetime)
+
         self.meeting_id = Meeting.format_meeting_id(meeting_id)
         self.password = Meeting.format_password(password)
         self.name = name
+        self.datetime = _datetime
 
     def __str__(self):
         r = [("ID", self.meeting_id), ("password", self.password)]
@@ -49,16 +65,27 @@ class MeetingEditDialog(QtWidgets.QDialog):
         self.password_input : QtWidgets.QLineEdit = self.findChild(QtWidgets.QLineEdit, 'passwordInput')
         self.name_input : QtWidgets.QLineEdit = self.findChild(QtWidgets.QLineEdit, 'nameInput')
 
+        self.date_time_input : QtWidgets.QDateTimeEdit = self.findChild(QtWidgets.QDateTimeEdit, 'dateTimeEdit')
+
         if meeting is not None:
             self.meeting_id_input.setText(meeting.meeting_id)
             self.password_input.setText(meeting.password)
             self.name_input.setText(meeting.name)
+            datetime = QDateTime(meeting.datetime)
+        else:
+            datetime = QDateTime.currentDateTime()
+
+        self.date_time_input.setDateTime(datetime)
 
     def get_fields(self):
         meeting_id = self.meeting_id_input.text()
         password = self.password_input.text()
         name = self.name_input.text()
-        return (meeting_id, password, name)
+        datetime = self.date_time_input.dateTime().toPyDateTime()
+        return (meeting_id, password, name, datetime)
+
+    def date_time_change(self):
+        datetime = self.date_time_input.dateTime()
 
     def accept(self): # needs return value QDialogCode == int, also doesn't seem to work
         try:
@@ -85,17 +112,21 @@ class MeetingList:
         if path is None:
             path: pathlib.Path = MeetingList.get_default_path()
 
-        with open(path, "r") as f:
-            tree = json.load(f)
-
-        return MeetingList([Meeting(*x) for x in tree])
+        try:
+            with open(path, "r") as f:
+                tree = json.load(f)
+            return MeetingList([Meeting(*x) for x in tree])
+        except (FileNotFoundError, json.JSONDecodeError):
+            return MeetingList()
+        except ValueError:
+            return MeetingList()
 
     def save(self, path = None):
         if path is None:
             path = MeetingList.get_default_path()
             path.parent.mkdir(parents = True, exist_ok = True)
 
-        tree = [(x.meeting_id, x.password, x.name) for x in self.meetings]
+        tree = [tuple(x) for x in self.meetings]
         tree = json.dumps(tree)
         with open(path, "w") as f:
             f.write(tree)
