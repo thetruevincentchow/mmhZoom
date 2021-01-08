@@ -1,7 +1,4 @@
-from PyQt5 import uic
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QTimer, QMutex, QThread
-from PyQt5 import QtWidgets, QtSvg, QtGui
-from PyQt5.QtGui import QPixmap, QImage, QPainter, QPalette
+from PyQt5 import uic, QtWidgets
 
 import sys
 import contextlib
