@@ -1,0 +1,4 @@
+pyfakewebcam>=0.1.0
+pygame>=2.0.1
+numpy>=1.19.4
+PyQt5>=5.15.2
