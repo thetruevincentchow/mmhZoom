@@ -15,14 +15,9 @@ pygame.camera.init()
 import pyfakewebcam
 
 import contextlib
+import threading
 
-num_seconds = 120
-fps = 15.0
-frame_delay = 1 / fps
-
-num_frames = math.ceil(fps * num_seconds)
-skip_frames = 10
-freeze_frames = round(fps * 1)
+import itertools as it
 
 class InputCamera(abc.ABC):
     pass
@@ -37,11 +32,14 @@ class RealCamera(InputCamera):
 
         # create a display surface. standard pygame stuff
         #self.display = pygame.display.set_mode(self.size, 0)
+        self._mutex = threading.Lock()
+        self.last_frame = None
 
     @staticmethod
     def get_devices():
         devices = pygame.camera.list_cameras()
-        return devices
+        fake_device_id = OutputCamera.get_default_device()
+        return [device_id for device_id in devices if device_id != fake_device_id]
 
     @staticmethod
     def get_default_device():
@@ -51,20 +49,31 @@ class RealCamera(InputCamera):
         return devices[0]
 
     def read(self):
-        # https://stackoverflow.com/questions/39003106/python-access-camera-without-opencv?noredirect=1&lq=1
-        frame : pygame.Surface = self.vid.get_image()
-        frame : np.array = pygame.surfarray.array3d(frame) # slow :(
+        with self._mutex:
+            # https://stackoverflow.com/questions/39003106/python-access-camera-without-opencv?noredirect=1&lq=1
+            frame : pygame.Surface = self.vid.get_image()
+            frame : np.array = pygame.surfarray.array3d(frame) # slow :(
 
-        #ret, frame = self.vid.read()
-        #if not ret: return None
+            #ret, frame = self.vid.read()
+            #if not ret: return None
 
-        return frame
+            self.last_frame = frame
 
-        #rgb_frame = frame[:,:,[2,1,0]] # BGR to RGB color conversion
-        #return rgb_frame
+            return frame
+
+            #rgb_frame = frame[:,:,[2,1,0]] # BGR to RGB color conversion
+            #return rgb_frame
 
     def read_transposed(self):
         return np.transpose(self.read(), (1,0,2))
+
+    def read_recent_frame(self):
+        with self._mutex:
+            if self.last_frame is None:
+                ret = None
+            else:
+                ret = self.last_frame.copy()
+        return ret
 
     def skip(self, n_frames):
         for i in range(n_frames):
@@ -91,6 +100,9 @@ class RealCamera(InputCamera):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.release()
+
+    def __repr__(self):
+        return "RealCamera(%r)" % (self.device_id, )
 
 class OutputCamera:
     @staticmethod
@@ -122,25 +134,84 @@ class OutputCamera:
     def write(self, frame: np.array):
         self.vid.schedule_frame(np.transpose(frame, (1,0,2)))
 
+class CycleLoop:
+    def __init__(self, n):
+        self.n = n
+    def __len__(self):
+        return self.n
+    def __iter__(self):
+        return it.cycle(range(self.n))
+
 class VideoLooper:
+    num_seconds = 2
+    fps = 15.0
+    frame_delay = 1 / fps
+
+    buffer_capacity = math.ceil(fps * num_seconds)
+    #skip_frames = 10
+    #freeze_frames = round(fps * 1)
+
     def __init__(self, input_camera: InputCamera, output_camera: OutputCamera):
         self.input_camera = input_camera
         self.output_camera = output_camera
+        self.buffer = []
 
-    def read_frames(self, mutex):
-        with mutex:
-            yield self.input_camera.read()
+        self._can_gather = True
+        self._looping = False
 
-    def loop(self, mutex = contextlib.nullcontext()):
-        for frame in self.read_frames(mutex):
-            start_time = time.time()
-            if frame is not None:
-                self.output_camera.write(frame)
-            end_time = time.time()
+        self._generator = iter(CycleLoop(self.buffer_capacity))
 
-            delay = max(0., frame_delay - max(0., end_time - start_time))
-            logging.debug(delay, end_time - start_time)
-            time.sleep(delay)
+    def get_gather(self):
+        return self._can_gather
+
+    def set_gather(self, value: bool):
+        self._can_gather = value
+
+    def get_looping(self):
+        if not self.can_loop:
+            self._looping = False
+        return self._looping
+
+    def set_looping(self, value: bool):
+        value = value and self.can_loop
+        self._looping = value
+
+    can_gather: bool = property(get_gather, set_gather) # unused, is_looping excludes frame gathering
+    is_looping: bool = property(get_looping, set_looping)
+
+    @property
+    def can_loop(self):
+        return len(self.buffer) >= self.buffer_capacity
+
+    def read_frames(self):
+        start_time = time.time()
+        frame = self.input_camera.read()
+        end_time = time.time()
+        yield frame, end_time - start_time
+
+    def add_frame(self, frame):
+        self.buffer.append(frame)
+        if len(self.buffer) > self.buffer_capacity:
+            del self.buffer[0] # TODO: replace with deque
+
+        logging.debug("Gather frame %d / %d" % (len(self.buffer), self.buffer_capacity))
+
+    def loop(self):
+        if self.is_looping:
+            frame_index = next(self._generator)
+            frame = self.buffer[frame_index]
+            self.output_camera.write(frame)
+            time.sleep(self.frame_delay)
+        else:
+            for frame, capture_delay in self.read_frames():
+                if frame is not None:
+                    self.output_camera.write(frame)
+                    if self.can_gather:
+                        self.add_frame(frame)
+
+                delay = max(0., self.frame_delay - capture_delay)
+                logging.debug("%r %r %r" % (delay, self.frame_delay, capture_delay))
+                time.sleep(delay)
 
 
 if __name__ == "__main__":
