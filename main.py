@@ -128,36 +128,36 @@ class VideoHelper:
             logging.info("Release output camera")
             self.output_cam.release()
 
-class Ui(QtWidgets.QMainWindow):
+
+class VideoUi:
     mainthread_callback_to_worker = pyqtSignal()
+    
+    preview_fps = 5.0
 
-    def __init__(self):
-        super(Ui, self).__init__()
-        uic.loadUi('mainWindow.ui', self)
-
-        self.video_button : QtWidgets.QPushButton = self.findChild(QtWidgets.QPushButton, 'videoToggle')
+    def __init__(self, window: QtWidgets.QMainWindow, video_tab: QtWidgets.QWidget):
+        self.video_button : QtWidgets.QPushButton = video_tab.findChild(QtWidgets.QPushButton, 'videoToggle')
         self.video_button.clicked.connect(self.toggle_video)
 
-        self.speak_button : QtWidgets.QPushButton = self.findChild(QtWidgets.QPushButton, 'speakToggle')
+        self.speak_button : QtWidgets.QPushButton = video_tab.findChild(QtWidgets.QPushButton, 'speakToggle')
         self.speak_button.clicked.connect(self.toggle_speak)
 
-        self.loop_button : QtWidgets.QPushButton = self.findChild(QtWidgets.QPushButton, 'loopToggle')
+        self.loop_button : QtWidgets.QPushButton = video_tab.findChild(QtWidgets.QPushButton, 'loopToggle')
         self.loop_button.clicked.connect(self.toggle_loop)
 
-        self.video_source : QtWidgets.QComboBox = self.findChild(QtWidgets.QComboBox, 'videoSource')
+        self.video_source : QtWidgets.QComboBox = video_tab.findChild(QtWidgets.QComboBox, 'videoSource')
         self.video_source.activated.connect(self.select_video_source)
 
-        self.status_bar : QtWidgets.QStatusBar = self.findChild(QtWidgets.QStatusBar, 'statusBar')
+        self.status_bar : QtWidgets.QStatusBar = window.findChild(QtWidgets.QStatusBar, 'statusBar')
 
         self.worker = None
 
         self.timer = QTimer()
-        self.timer.setInterval(1000. / 5)
+        self.timer.setInterval(1000 // self.preview_fps)
         self.timer.timeout.connect(self.render_preview_frame)
         self.timer.start()
 
-        #self.preview : QtWidgets.QGraphicsView = self.findChild(QtWidgets.QGraphicsView, 'previewView')
-        self.preview : QtWidgets.QLabel = self.findChild(QtWidgets.QLabel, 'previewView')
+        #self.preview : QtWidgets.QGraphicsView = video_tab.findChild(QtWidgets.QGraphicsView, 'previewView')
+        self.preview : QtWidgets.QLabel = video_tab.findChild(QtWidgets.QLabel, 'previewView')
 
         self.video_helper = None
 
@@ -332,6 +332,22 @@ class Ui(QtWidgets.QMainWindow):
         image = QImage(data, width, height, bpl, QImage.Format_RGB888)
         pix = QPixmap(image)
         self.preview.setPixmap(pix)
+
+class Ui(QtWidgets.QMainWindow):
+    def __init__(self):
+        super(Ui, self).__init__()
+        uic.loadUi('mainWindow.ui', self)
+
+        self.video_tab : QtWidgets.QWidget = self.findChild(QtWidgets.QWidget, 'videoTab')
+        self.video_ui = VideoUi(self, self.video_tab)
+
+    def __enter__(self):
+        self._ctx_stack: contextlib.ExitStack = contextlib.ExitStack()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._ctx_stack.close()
+
 
 app = QtWidgets.QApplication(sys.argv)
 with Ui() as window:
