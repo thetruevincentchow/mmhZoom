@@ -2,6 +2,7 @@ import math
 import logging
 import numpy as np
 import time
+import abc
 
 # unfortunately, OpenCV is incompatible with PyQt5, so pyfakewebcam will suffer degraded performance
 #import cv2
@@ -13,20 +14,24 @@ pygame.camera.init()
 
 import pyfakewebcam
 
+import contextlib
+
 num_seconds = 120
-fps = 30.0
+fps = 15.0
 frame_delay = 1 / fps
 
 num_frames = math.ceil(fps * num_seconds)
 skip_frames = 10
 freeze_frames = round(fps * 1)
 
-class InputCamera:
+class InputCamera(abc.ABC):
     pass
 
 class RealCamera(InputCamera):
     def __init__(self, device_id, size = (640,480)):
-        if device_id is None: device_id = RealCamera.get_default_device()
+        #if device_id is None:
+        #    device_id = RealCamera.get_default_device()
+
         self.size = size
         self.device_id = device_id
 
@@ -58,6 +63,9 @@ class RealCamera(InputCamera):
         #rgb_frame = frame[:,:,[2,1,0]] # BGR to RGB color conversion
         #return rgb_frame
 
+    def read_transposed(self):
+        return np.transpose(self.read(), (1,0,2))
+
     def skip(self, n_frames):
         for i in range(n_frames):
             self.vid.read()
@@ -71,6 +79,7 @@ class RealCamera(InputCamera):
         #self.snapshot = pygame.surface.Surface(self.size, 0, self.display)
 
         #self.vid: VideoCapture = cv2.VideoCapture(self.device_id)
+        return self
 
     def __enter__(self): 
         self.init()
@@ -85,19 +94,19 @@ class RealCamera(InputCamera):
 
 class OutputCamera:
     @staticmethod
-    def find_output_video_device():
+    def get_default_device():
         return '/dev/video2' # TODO: dynamically allocate device
 
     def __init__(self, device_id = None, size = (640,480)):
+        #if device_id is None:
+        #    device_id = OutputCamera.find_output_video_device()
+
         self.size = size
-
-        if device_id is None:
-            device_id = OutputCamera.find_output_video_device()
-
         self.device_id = device_id
 
     def init(self):
         self.vid = pyfakewebcam.FakeWebcam(self.device_id, self.size[0], self.size[1])
+        return self
 
     def __enter__(self):
         self.init()
@@ -118,27 +127,20 @@ class VideoLooper:
         self.input_camera = input_camera
         self.output_camera = output_camera
 
-    def read_frames(self):
-        yield self.input_camera.read()
+    def read_frames(self, mutex):
+        with mutex:
+            yield self.input_camera.read()
 
-    #def loop(self):
-    #    while True:
-    #        for frame in self.read_frames():
-    #            if frame is not None:
-    #                self.output_camera.write(frame)
-    #            time.sleep(frame_delay)
-
-    def loop(self):
-        #events = pygame.event.get()
-        #for e in events:
-        #    if e.type == QUIT or (e.type == KEYDOWN and e.key == K_ESCAPE):
-        #        # close the camera safely
-        #        self.cam.stop()
-        #        going = False
-        for frame in self.read_frames():
+    def loop(self, mutex = contextlib.nullcontext()):
+        for frame in self.read_frames(mutex):
+            start_time = time.time()
             if frame is not None:
                 self.output_camera.write(frame)
-            time.sleep(frame_delay)
+            end_time = time.time()
+
+            delay = max(0., frame_delay - max(0., end_time - start_time))
+            logging.debug(delay, end_time - start_time)
+            time.sleep(delay)
 
 
 if __name__ == "__main__":
