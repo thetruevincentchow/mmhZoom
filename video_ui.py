@@ -247,7 +247,7 @@ class VideoUi:
         self.set_capture(is_capturing)
 
         if is_capturing:
-            self.status_bar.showMessage('Enabled microphone, disabled capturing')
+            self.status_bar.showMessage('Enabled microphone, disabled looping')
             self.set_looping(False)
         else:
             self.status_bar.showMessage('Disbaled microphone')
