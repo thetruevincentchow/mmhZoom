@@ -40,7 +40,7 @@ class RealCamera(InputCamera):
 
     @staticmethod
     def get_default_device():
-        devices = RealCamera.get_cameras()
+        devices = RealCamera.get_devices()
         if len(devices) == 0:
             raise ValueError("No camera available")
         return devices[0]
@@ -62,7 +62,7 @@ class RealCamera(InputCamera):
         for i in range(n_frames):
             self.vid.read()
 
-    def __enter__(self): 
+    def init(self):
         self.vid = pygame.camera.Camera(self.device_id, self.size)
         self.vid.start()
 
@@ -71,11 +71,17 @@ class RealCamera(InputCamera):
         #self.snapshot = pygame.surface.Surface(self.size, 0, self.display)
 
         #self.vid: VideoCapture = cv2.VideoCapture(self.device_id)
+
+    def __enter__(self): 
+        self.init()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def release(self):
         self.vid.stop()
         #self.vid.release() # OpenCV
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
 
 class OutputCamera:
     @staticmethod
@@ -90,12 +96,19 @@ class OutputCamera:
 
         self.device_id = device_id
 
-    def __enter__(self):
+    def init(self):
         self.vid = pyfakewebcam.FakeWebcam(self.device_id, self.size[0], self.size[1])
+
+    def __enter__(self):
+        self.init()
         return self
 
+    def release(self):
+        del self.vid
+        #self.vid.release()
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.vid.release()
+        self.release()
 
     def write(self, frame: np.array):
         self.vid.schedule_frame(np.transpose(frame, (1,0,2)))
@@ -116,18 +129,16 @@ class VideoLooper:
     #            time.sleep(frame_delay)
 
     def loop(self):
-        going = True
-        while going:
-            events = pygame.event.get()
-            #for e in events:
-            #    if e.type == QUIT or (e.type == KEYDOWN and e.key == K_ESCAPE):
-            #        # close the camera safely
-            #        self.cam.stop()
-            #        going = False
-            for frame in self.read_frames():
-                if frame is not None:
-                    self.output_camera.write(frame)
-                time.sleep(frame_delay)
+        #events = pygame.event.get()
+        #for e in events:
+        #    if e.type == QUIT or (e.type == KEYDOWN and e.key == K_ESCAPE):
+        #        # close the camera safely
+        #        self.cam.stop()
+        #        going = False
+        for frame in self.read_frames():
+            if frame is not None:
+                self.output_camera.write(frame)
+            time.sleep(frame_delay)
 
 
 if __name__ == "__main__":

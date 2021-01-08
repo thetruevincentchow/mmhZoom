@@ -1,7 +1,7 @@
 #from PyQt5 import QtWidgets, QThreadPool, QRunnable, pyqtSlot, uic
 
 from PyQt5 import uic
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QTimer, QThread
+from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QTimer, QMutex, QThread
 from PyQt5 import QtWidgets
 #import (
 #    QApplication,
@@ -15,31 +15,67 @@ from PyQt5 import QtWidgets
 import sys
 import camera
 
+import logging
+
+#logging.basicConfig()
+#logging.getLogger().setLevel(logging.DEBUG)
+
 # https://www.learnpyqt.com/tutorials/multithreading-pyqt-applications-qthreadpool/
 # Bidirctonal callbacks:
 #   https://stackoverflow.com/questions/61625043/threading-with-qrunnable-proper-manner-of-sending-bi-directional-callbacks
 
-class Worker(QObject):
-    callback_from_worker = pyqtSignal()
+class VideoWorker(QObject):
+    signalFinished = pyqtSignal()
 
-    def __init__(self, func, *args, **kwargs):
-        super(Worker, self).__init__()
-        self._func = func
-        self.args = args
-        self.kwargs = kwargs
-        self.kwargs["signal"] = self.callback_from_worker
+    def __init__(self, looper: camera.VideoLooper):
+        QObject.__init__(self)
+        self._mutex = QMutex()
+        self._running = True
 
-    def start_task(self):
-        QTimer.singleShot(0, self.task)
+        self.looper = looper
 
     @pyqtSlot()
-    def task(self):
-        self._func(*self.args, **self.kwargs)
+    def work(self):
+        while self._running:
+            print("Loop")
+            self.looper.loop()
+        self.signalFinished.emit()
 
     @pyqtSlot()
-    def acknowledge_callback_in_worker(self):
-        print("Acknowledged Callback in Worker")
-        print(threading.current_thread())
+    def stop(self):
+        print('Stopping')
+        self._mutex.lock()
+        self._running = False
+        self._mutex.unlock()
+
+class VideoHelper:
+    def __init__(self, input_device: str, output_device: str):
+        logging.info("Create input camera")
+        self.input_cam = camera.RealCamera(input_device)
+        self.input_cam.init()
+        logging.info("Create output camera")
+        self.output_cam = camera.OutputCamera(output_device)
+        self.output_cam.init()
+
+        looper = camera.VideoLooper(self.input_cam, self.output_cam)
+        self.worker = VideoWorker(looper)
+        self.worker_thread = QThread()
+        self.worker.moveToThread(self.worker_thread)
+        self.worker_thread.started.connect(self.worker.work)
+        self.worker_thread.start()
+
+    def release(self):
+        logging.info("Stop worker")
+        self.worker.stop()
+        logging.info("Quit worker thread")
+        self.worker_thread.quit()
+        logging.info("Wait on worker thread")
+        self.worker_thread.wait()
+
+        logging.info("Release input camera")
+        self.input_cam.release()
+        logging.info("Release output camera")
+        self.output_cam.release()
 
 class Ui(QtWidgets.QMainWindow):
     mainthread_callback_to_worker = pyqtSignal()
@@ -49,48 +85,33 @@ class Ui(QtWidgets.QMainWindow):
         uic.loadUi('mainWindow.ui', self)
 
         self.videoButton = self.findChild(QtWidgets.QPushButton, 'videoToggle')
-        self.videoButton.clicked.connect(self.start_video)
-
-        #self.input = self.findChild(QtWidgets.QLineEdit, 'input')
+        self.videoButton.clicked.connect(self.toggle_video)
 
         self.timer_label = self.findChild(QtWidgets.QLabel, 'timer_label')
 
-        self._worker = Worker(self.do_something)
-        self._worker.callback_from_worker.connect(
-            self.acknowledge_callback_in_mainthread_and_respond
-        )
+        self.worker = None
 
-        self.worker_thread: QThread = QThread(self)
-        self.worker_thread.start()
-        self._worker.moveToThread(self.worker_thread)
+        self.counter = 0
+        self.timer = QTimer()
+        self.timer.setInterval(1000)
+        self.timer.timeout.connect(self.recurring_timer)
+        self.timer.start()
+
+        self.video_helper = None
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.worker_thread.quit()
-        self.worker_thread.wait()
+        if self.video_helper:
+            self.video_helper.release()
 
-    @pyqtSlot()
-    def start_video(self, signal):
-        # signal argument will be the callback_from_worker and it will emit to acknowledge_callback_in_mainthread
-        print("do_something is sleeping briefly. Try to see if you get a locked widget...")
-        with camera.RealCamera("/dev/video0") as input_cam:
-            with camera.OutputCamera() as output_cam:
-                camera.VideoLooper(input_cam, output_cam).loop()
-        signal.emit()
-
-    @pyqtSlot()
-    def acknowledge_callback_in_mainthread_and_respond(self):
-        # this function should respond to callback_from_worker and emit a response
-        print("Acknowledged Callback in Main")
-        self.mainthread_callback_to_worker.emit()
-
-    def thread_example(self):
-        print("Beginning thread example")
-        worker = RespondedToWorker(self.do_something)
-        worker.signals.callback_from_worker.connect(self.acknowledge_callback_in_mainthread_and_respond)
-    # self.mainthread_callback_to_worker.connect(worker.acknowledge_callback_in_worker) # <-- causes crash
+    def toggle_video(self):
+        if self.video_helper:
+            self.video_helper.release()
+            self.video_helper = None
+        else:
+            self.video_helper = VideoHelper(None, None)
 
     def recurring_timer(self):
         self.counter += 1
