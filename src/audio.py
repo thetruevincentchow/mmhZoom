@@ -6,11 +6,15 @@ class Audio:
         self.should_capture = False
 
     def set_capture(self, rec = True):
-        self.recording_mixer.setrec(rec)
+        if self.recording_mixer:
+            self.recording_mixer.setrec(rec)
         self.should_capture = rec
 
     def is_capturing(self):
-        return self.recording_mixer.getrec()[0] != 0
+        if self.recording_mixer:
+            return self.recording_mixer.getrec()[0] != 0
+        else:
+            return False
 
     @staticmethod
     def test_mixer(name):
@@ -31,4 +35,6 @@ class Audio:
         mixers = self.get_recording_mixers()
         m = mixers.get('Capture')
         if m is not None: return m
-        return next(iter(mixers.values()))
+        try:
+            return next(iter(mixers.values()))
+        except StopIteration: pass

@@ -11,7 +11,7 @@ from meeting_join import MeetingAutoJoin
 class MeetingEditDialog(QtWidgets.QDialog):
     def __init__(self, meeting: Meeting = None):
         super(MeetingEditDialog, self).__init__()
-        uic.loadUi('meetingEditDialog.ui', self)
+        uic.loadUi('./layout/meetingEditDialog.ui', self)
 
         self.meeting_id_input : QtWidgets.QLineEdit = self.findChild(QtWidgets.QLineEdit, 'meetingIdInput')
         self.password_input : QtWidgets.QLineEdit = self.findChild(QtWidgets.QLineEdit, 'passwordInput')

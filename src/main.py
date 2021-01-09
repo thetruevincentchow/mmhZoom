@@ -8,12 +8,12 @@ from video_ui import VideoUi
 from meeting_ui import MeetingUi
 
 logging.basicConfig()
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.WARN)
 
 class Ui(QtWidgets.QMainWindow):
     def __init__(self):
         super(Ui, self).__init__()
-        uic.loadUi('mainWindow.ui', self)
+        uic.loadUi('./layout/mainWindow.ui', self)
 
         self.video_tab : QtWidgets.QWidget = self.findChild(QtWidgets.QWidget, 'videoTab')
         self.meeting_tab : QtWidgets.QWidget = self.findChild(QtWidgets.QWidget, 'meetingTab')
