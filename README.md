@@ -22,7 +22,7 @@ See [setup.md](./setup.md) for installation instructions.
 
 You may also want to allow Zoom to open zoommtg links with your browser:
 
-![zoommtg](./docs/assets/zoommtg checkbox.png "Always allow Zoom to open these links so that automated joining will work")
+![zoommtg](./docs/assets/zoommtg-checkbox.png "Always allow Zoom to open these links so that automated joining will work")
 
 ## Usage
 
